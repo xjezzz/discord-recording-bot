@@ -104,15 +104,31 @@ func voiceHandler(s *discordgo.Session, c chan *discordgo.Packet, guildID string
 	}
 }
 func voiceStateUpdate(s *discordgo.Session, event *discordgo.VoiceStateUpdate) {
-	// Получаем состояние голосового канала
-	if event.ChannelID == "" {
-		_, err := s.ChannelVoiceJoin(event.GuildID, "", false, false)
+	// Проверяем, что BeforeUpdate не равен nil
+	if event.BeforeUpdate != nil && event.BeforeUpdate.ChannelID != "" {
+		guild, err := s.State.Guild(event.GuildID)
 		if err != nil {
-			fmt.Println("failed to disconnect from voice channel:", err)
+			fmt.Println("failed to get voice channel:", err)
+			return
+		}
+
+		// Проверяем количество пользователей в голосовом канале
+		userCount := 0
+		for _, vs := range guild.VoiceStates {
+			if vs.ChannelID == event.BeforeUpdate.ChannelID && vs.UserID != s.State.User.ID {
+				userCount++
+			}
+		}
+		fmt.Println("COUNTER", userCount)
+		if userCount == 0 {
+			_, err := s.ChannelVoiceJoin(event.GuildID, "", false, false)
+			fmt.Println("BOT VISHEL")
+			if err != nil {
+				fmt.Println("failed to disconnect from voice channel:", err)
+			}
 		}
 	}
 }
-
 func createPionRTPPacket(p *discordgo.Packet) *rtp.Packet {
 	return &rtp.Packet{
 		Header: rtp.Header{
