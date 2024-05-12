@@ -35,7 +35,12 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
 
-	dg.Close()
+	err = dg.Close()
+	if err != nil {
+		if err.Error() == "websocket: close sent" {
+			fmt.Println("Bot closed connection")
+		}
+	}
 }
 
 func channelCreate(s *discordgo.Session, event *discordgo.ChannelCreate) {
@@ -81,7 +86,11 @@ func voiceHandler(s *discordgo.Session, c chan *discordgo.Packet, guildID string
 		}
 
 		// Check if any users are in the voice channel
-		guild, _ := s.State.Guild(guildID)
+		guild, err := s.State.Guild(guildID)
+		if err != nil {
+			fmt.Println("failed to get voice channel:", err)
+			return
+		}
 		userCount := 0
 		for _, vs := range guild.VoiceStates {
 			if vs.UserID != s.State.User.ID {
@@ -93,8 +102,12 @@ func voiceHandler(s *discordgo.Session, c chan *discordgo.Packet, guildID string
 		// If no users are in the channel and a user was previously in the channel, disconnect
 		if userCount == 0 && userWasInChannel {
 			fmt.Println("All members left, disconnecting from voice channel")
-			vc, _ := s.ChannelVoiceJoin(guildID, "", false, false)
+			vc, err := s.ChannelVoiceJoin(guildID, "", false, false)
+			if err != nil {
+				fmt.Println("failed to disconnect from voice channel:", err)
+			}
 			vc.Disconnect()
+
 			return
 		}
 	}
@@ -103,6 +116,7 @@ func voiceHandler(s *discordgo.Session, c chan *discordgo.Packet, guildID string
 		f.Close()
 	}
 }
+
 func voiceStateUpdate(s *discordgo.Session, event *discordgo.VoiceStateUpdate) {
 	// Проверяем, что BeforeUpdate не равен nil
 	if event.BeforeUpdate != nil && event.BeforeUpdate.ChannelID != "" {
@@ -111,24 +125,28 @@ func voiceStateUpdate(s *discordgo.Session, event *discordgo.VoiceStateUpdate) {
 			fmt.Println("failed to get voice channel:", err)
 			return
 		}
-
 		// Проверяем количество пользователей в голосовом канале
 		userCount := 0
+		botInSameChannel := false
 		for _, vs := range guild.VoiceStates {
 			if vs.ChannelID == event.BeforeUpdate.ChannelID && vs.UserID != s.State.User.ID {
 				userCount++
 			}
+			if vs.ChannelID == event.BeforeUpdate.ChannelID && vs.UserID == s.State.User.ID {
+				botInSameChannel = true
+			}
 		}
 		fmt.Println("COUNTER", userCount)
-		if userCount == 0 {
+		if userCount == 0 && botInSameChannel {
 			_, err := s.ChannelVoiceJoin(event.GuildID, "", false, false)
-			fmt.Println("BOT VISHEL")
 			if err != nil {
 				fmt.Println("failed to disconnect from voice channel:", err)
 			}
+			fmt.Println("BOT VISHEL")
 		}
 	}
 }
+
 func createPionRTPPacket(p *discordgo.Packet) *rtp.Packet {
 	return &rtp.Packet{
 		Header: rtp.Header{
