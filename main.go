@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/xjezzz/discord-recording-bot/config"
 	"os"
@@ -60,60 +59,25 @@ func channelCreate(s *discordgo.Session, event *discordgo.ChannelCreate) {
 
 	}
 
-	voiceHandler(s, v.OpusRecv, event.GuildID)
+	voiceHandler(v.OpusRecv, event.GuildID, event.Channel.ID)
 }
 
-func voiceHandler(s *discordgo.Session, c chan *discordgo.Packet, guildID string) {
-	files := make(map[uint32]media.Writer)
-	userWasInChannel := false
+func voiceHandler(c chan *discordgo.Packet, guildID, channelID string) {
+
+	file, err := oggwriter.New(fmt.Sprintf("%s_%s.ogg", guildID, channelID), 48000, 2)
+	if err != nil {
+		fmt.Printf("failed to create file %s.ogg, giving up on recording: %v\n", guildID, err)
+		return
+	}
+	defer file.Close()
 
 	for vp := range c {
-		file, ok := files[vp.SSRC]
-		if !ok {
-			var err error
-			file, err = oggwriter.New(fmt.Sprintf("%s_%d.ogg", guildID, vp.SSRC), 48000, 2)
-			if err != nil {
-				fmt.Printf("failed to create file %s_%d.ogg, giving up on recording: %v\n", guildID, vp.SSRC, err)
-				return
-			}
-			files[vp.SSRC] = file
-		}
-
 		rtp := createPionRTPPacket(vp)
 		err := file.WriteRTP(rtp)
 		if err != nil {
 			fmt.Printf("failed to write to file %s_%d.ogg, giving up on recording: %v\n", guildID, vp.SSRC, err)
 		}
 
-		// Check if any users are in the voice channel
-		guild, err := s.State.Guild(guildID)
-		if err != nil {
-			fmt.Println("failed to get voice channel:", err)
-			return
-		}
-		userCount := 0
-		for _, vs := range guild.VoiceStates {
-			if vs.UserID != s.State.User.ID {
-				userCount++
-				userWasInChannel = true
-			}
-		}
-
-		// If no users are in the channel and a user was previously in the channel, disconnect
-		if userCount == 0 && userWasInChannel {
-			fmt.Println("All members left, disconnecting from voice channel")
-			vc, err := s.ChannelVoiceJoin(guildID, "", false, false)
-			if err != nil {
-				fmt.Println("failed to disconnect from voice channel:", err)
-			}
-			vc.Disconnect()
-
-			return
-		}
-	}
-
-	for _, f := range files {
-		f.Close()
 	}
 }
 
@@ -133,6 +97,7 @@ func voiceStateUpdate(s *discordgo.Session, event *discordgo.VoiceStateUpdate) {
 				userCount++
 			}
 			if vs.ChannelID == event.BeforeUpdate.ChannelID && vs.UserID == s.State.User.ID {
+				fmt.Println("herek")
 				botInSameChannel = true
 			}
 		}
